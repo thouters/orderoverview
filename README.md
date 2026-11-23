@@ -7,6 +7,8 @@ Two scripts that build a local HTML overview of your web shop orders:
   for products still for sale, the specifications, PDF documents and description images.
 - `tinytronics_orders.py` does the same for [TinyTronics](https://www.tinytronics.nl) and
   builds `overview-tinytronics/index.html`; see [TinyTronics](#tinytronics) below.
+- `conrad_orders.py` does the same for [Conrad](https://www.conrad.be) and builds
+  `overview-conrad/index.html`; see [Conrad](#conrad) below.
 
 ## With Nix
 
@@ -147,4 +149,39 @@ overview-tinytronics/
     docs/*                    files from the "Downloads" tab (datasheets etc.)
     description/desc_*.jpg    images from the description
     meta.json                 title, availability, price, specifications, description text
+```
+
+## Conrad
+
+`conrad_orders.py` works like the TinyTronics script (same options and commands; products are
+stored by their Conrad article number) for orders placed on www.conrad.be.
+
+```bash
+nix run .#conrad -- login     # first time: log in in the browser window
+nix run .#conrad -- update    # new orders + missing products + html
+```
+
+Without Nix: `python conrad_orders.py login`, then `python conrad_orders.py update`.
+
+- `orders` opens your account, selects "All orders" (Conrad shows only the last 2 years by
+  default), and reads each order, the product data and the PDF invoices.
+- `products` takes a screenshot of each product page and downloads the product images,
+  specifications, description and documents (datasheets, manuals). Of documents that come in
+  many languages only the Dutch and English versions are kept.
+- Products Conrad no longer sells have no name, images or page left; they are shown by
+  article number with the price you paid.
+
+Output (set `$CONRAD_ORDERS_DIR` to put it elsewhere):
+
+```
+overview-conrad/
+  index.html                  the overview (open in a browser)
+  orders.json                 orders, order lines, tracking
+  invoices/<order>_<invoice>.pdf
+  products/<article number>/
+    screenshot.jpg            product page
+    img_01.jpg ...            product images
+    docs/<lang>_*.pdf         datasheets and manuals
+    product.json              product data from Conrad
+    meta.json                 summary: title, brand, EAN, specifications, description
 ```
