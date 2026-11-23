@@ -9,6 +9,8 @@ Two scripts that build a local HTML overview of your web shop orders:
   builds `overview-tinytronics/index.html`; see [TinyTronics](#tinytronics) below.
 - `conrad_orders.py` does the same for [Conrad](https://www.conrad.be) and builds
   `overview-conrad/index.html`; see [Conrad](#conrad) below.
+- `automation24_orders.py` does the same for [Automation24](https://www.automation24.be) and
+  builds `overview-automation24/index.html`; see [Automation24](#automation24) below.
 
 ## With Nix
 
@@ -184,4 +186,38 @@ overview-conrad/
     docs/<lang>_*.pdf         datasheets and manuals
     product.json              product data from Conrad
     meta.json                 summary: title, brand, EAN, specifications, description
+```
+
+## Automation24
+
+`automation24_orders.py` works like the other scripts (same options and commands) for orders
+placed on www.automation24.be.
+
+```bash
+nix run .#automation24 -- login     # first time: log in in the browser window
+nix run .#automation24 -- update    # new orders + missing products + html
+```
+
+Without Nix: `python automation24_orders.py login`, then `python automation24_orders.py update`.
+
+- The site is behind a Cloudflare check; it usually passes by itself after a few seconds. If it
+  asks you to click a checkbox, do so in the browser window and the script continues.
+- `orders` reads the order list and saves each order's confirmation, delivery note and invoice.
+- The order history has no product links, so `products` finds each product through the shop's
+  search (by part number) and checks the article id. It saves a screenshot, the product images,
+  the technical data, the description and the downloads (datasheets, manuals, certificates).
+  The cookie banner is accepted automatically.
+
+Output (set `$AUTOMATION24_ORDERS_DIR` to put it elsewhere):
+
+```
+overview-automation24/
+  index.html                  the overview (open in a browser)
+  orders.json                 orders, order lines, tracking
+  documents/<order>_<type>.pdf   order confirmation, delivery note, invoice
+  products/<article id>/
+    screenshot.jpg            product page
+    img_01.webp ...           product images
+    docs/*                    datasheets, manuals, certificates, CAD files
+    meta.json                 title, brand, availability, specifications, description
 ```

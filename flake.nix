@@ -33,17 +33,20 @@
         aliexpress = mkApp "aliexpress-orders" ./aliexpress_orders.py "ALIEXPRESS_ORDERS_DIR";
         tinytronics = mkApp "tinytronics-orders" ./tinytronics_orders.py "TINYTRONICS_ORDERS_DIR";
         conrad = mkApp "conrad-orders" ./conrad_orders.py "CONRAD_ORDERS_DIR";
+        automation24 = mkApp "automation24-orders" ./automation24_orders.py "AUTOMATION24_ORDERS_DIR";
       in
       {
         packages.default = aliexpress;
         packages.aliexpress = aliexpress;
         packages.tinytronics = tinytronics;
         packages.conrad = conrad;
+        packages.automation24 = automation24;
 
         apps.default = { type = "app"; program = "${aliexpress}/bin/aliexpress-orders"; };
         apps.aliexpress = { type = "app"; program = "${aliexpress}/bin/aliexpress-orders"; };
         apps.tinytronics = { type = "app"; program = "${tinytronics}/bin/tinytronics-orders"; };
         apps.conrad = { type = "app"; program = "${conrad}/bin/conrad-orders"; };
+        apps.automation24 = { type = "app"; program = "${automation24}/bin/automation24-orders"; };
 
         devShells.default = pkgs.mkShell ({
           packages = [ python ];
