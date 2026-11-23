@@ -42,26 +42,44 @@ Requires Python 3.9 or newer from [python.org](https://www.python.org/downloads/
 ```bat
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
-.venv\Scripts\playwright install chromium
 ```
 
-Then:
+Then run it with Microsoft Edge, which is already installed on Windows:
 
 ```bat
-.venv\Scripts\python aliexpress_orders.py login
-.venv\Scripts\python aliexpress_orders.py update
+.venv\Scripts\python aliexpress_orders.py --channel msedge login
+.venv\Scripts\python aliexpress_orders.py --channel msedge update
 ```
+
+Prefer Google Chrome? Use `--channel chrome`. To use Playwright's own Chromium instead,
+run `.venv\Scripts\playwright install chromium` once and leave out `--channel`.
 
 The script takes a command (`login`, `update`, ...), not your e-mail address or password:
 `login` opens a browser window where you log in to AliExpress yourself. In PowerShell
 the commands are the same; if activating or running scripts is blocked, use `cmd` instead.
 Open `overview\index.html` in your browser when it is done.
 
+## Choosing the browser
+
+By default the script uses Playwright's own Chromium. With `--channel` it uses a browser
+that is already installed on your computer instead:
+
+| Option | Browser | Profile folder |
+|---|---|---|
+| *(none)* | Playwright's Chromium (`playwright install chromium`) | `.browser-profile/` |
+| `--channel chrome` | Google Chrome | `.browser-profile-chrome/` |
+| `--channel msedge` | Microsoft Edge | `.browser-profile-msedge/` |
+
+`--channel` goes before the command, e.g. `aliexpress_orders.py --channel msedge update`.
+Each browser has its own profile, so you log in once per browser. The script always uses
+that separate profile, never your everyday browser profile, so your normal browser
+logins are not used or touched. Use the same `--channel` every time to stay logged in.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `login` | Open the browser so you can log in; the session is kept in `.browser-profile/` |
+| `login` | Open the browser so you can log in; the session is kept in the profile folder (see above) |
 | `update [--full]` | `orders`, then `products`, `details` and `html` |
 | `orders [--full]` | Load the order list; stops at already known orders unless `--full` |
 | `products [--force] [--only ID ...] [--limit N]` | Screenshot + images for products not yet processed |
@@ -70,7 +88,8 @@ Open `overview\index.html` in your browser when it is done.
 
 - On a captcha or expired login the script pauses; solve it in the window and it continues.
 - It is resumable: products that already have a `meta.json` are skipped.
-- `--cdp http://127.0.0.1:9333` attaches to an already running Chromium instead of launching one.
+- `--cdp http://127.0.0.1:9333` attaches to an already running Chromium instead of launching one
+  (`--channel` is ignored then).
 
 ## Output
 

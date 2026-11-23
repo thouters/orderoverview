@@ -11,12 +11,15 @@ Usage:
   python aliexpress_orders.py details [--force] [--all] [--only ID ...] [--limit N]
   python aliexpress_orders.py html
 
-Option for all commands that use the browser:
+Options for all commands that use the browser (put them before the command):
+  --channel chrome|msedge       use the installed Google Chrome or Microsoft Edge instead of
+                                Playwright's own Chromium (no `playwright install` needed).
   --cdp http://127.0.0.1:9333   attach to an already running Chromium (started with
                                 --remote-debugging-port) instead of launching one.
 
-The browser runs visibly with its own profile in ./.browser-profile, so you stay
-logged in between runs. On a captcha the script pauses until you solve it.
+The browser runs visibly with its own profile in ./.browser-profile (or
+./.browser-profile-<channel>), so you stay logged in between runs. On a captcha
+the script pauses until you solve it.
 """
 import argparse, asyncio, html, io, json, os, random, re, sys, time
 from datetime import datetime
@@ -28,7 +31,7 @@ ROOT = os.environ.get("ALIEXPRESS_ORDERS_DIR") or os.path.dirname(os.path.abspat
 OUT = os.path.join(ROOT, "overview")
 PROD = os.path.join(OUT, "products")
 ORDERS_JSON = os.path.join(OUT, "orders.json")
-PROFILE = os.path.join(ROOT, ".browser-profile")
+CHANNELS = ("chrome", "msedge")
 ORDER_URL = "https://www.aliexpress.com/p/order/index.html"
 VIEWPORT = {"width": 1400, "height": 1000}
 META_VERSION = 2
@@ -41,19 +44,36 @@ def log(*a):
 class Browser:
     """Persistent profile (default) or attach to an existing browser via CDP."""
 
-    def __init__(self, cdp=None):
+    def __init__(self, cdp=None, channel=None):
         self.cdp = cdp
+        self.channel = channel
+
+    @property
+    def profile(self):
+        # One profile per browser: Chromium, Chrome and Edge versions differ, and a
+        # profile opened by a newer browser may not open in an older one.
+        name = ".browser-profile" + (f"-{self.channel}" if self.channel else "")
+        return os.path.join(ROOT, name)
 
     async def __aenter__(self):
         self.pw = await async_playwright().start()
         if self.cdp:
+            if self.channel:
+                log(f"--channel {self.channel} is ignored with --cdp.")
             self.browser = await self.pw.chromium.connect_over_cdp(self.cdp)
             self.ctx = self.browser.contexts[0]
-        else:
-            self.browser = None
+            return self
+        self.browser = None
+        try:
             self.ctx = await self.pw.chromium.launch_persistent_context(
-                PROFILE, headless=False, viewport=VIEWPORT,
+                self.profile, channel=self.channel, headless=False, viewport=VIEWPORT,
                 args=["--no-first-run", "--no-default-browser-check"])
+        except Exception as e:
+            await self.pw.stop()
+            if self.channel and ("is not found" in str(e) or "Executable doesn't exist" in str(e)):
+                sys.exit(f"Browser '{self.channel}' is not installed on this computer. Install it, "
+                         f"or leave out --channel to use Playwright's Chromium.")
+            raise
         return self
 
     async def new_page(self):
@@ -602,13 +622,13 @@ async def cmd_login(b):
     await pg.goto(ORDER_URL, wait_until="domcontentloaded")
     await pg.wait_for_timeout(3000)
     await wait_for_login(pg)
-    log("You are logged in; the profile is saved in .browser-profile.")
+    log(f"You are logged in; the profile is saved in {os.path.basename(b.profile)}.")
     await pg.close()
 
 async def run(args):
     if args.cmd == "html":
         return cmd_html()
-    async with Browser(args.cdp) as b:
+    async with Browser(args.cdp, args.channel) as b:
         if args.cmd == "login":
             await cmd_login(b)
         elif args.cmd == "orders":
@@ -626,6 +646,8 @@ async def run(args):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--channel", choices=CHANNELS,
+                    help="use the installed Google Chrome or Microsoft Edge instead of Playwright's Chromium")
     ap.add_argument("--cdp", help="attach to an existing Chromium, e.g. http://127.0.0.1:9333")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("login")
