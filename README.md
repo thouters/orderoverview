@@ -16,7 +16,9 @@ nix develop            # shell with python, playwright, pillow and Chromium
 (or to `$ALIEXPRESS_ORDERS_DIR`). New source files must be `git add`-ed before the
 flake can see them.
 
-## Without Nix (one-time setup)
+## Linux / macOS without Nix
+
+Requires Python 3.9 or newer. One-time setup:
 
 ```bash
 python3 -m venv .venv
@@ -24,10 +26,36 @@ python3 -m venv .venv
 .venv/bin/playwright install chromium
 ```
 
+Then:
+
 ```bash
 .venv/bin/python aliexpress_orders.py login
 .venv/bin/python aliexpress_orders.py update
 ```
+
+## Windows
+
+Requires Python 3.9 or newer from [python.org](https://www.python.org/downloads/)
+(tick "Add python.exe to PATH" during installation). One-time setup, in a Command Prompt
+(`cmd`) opened in the project folder:
+
+```bat
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\playwright install chromium
+```
+
+Then:
+
+```bat
+.venv\Scripts\python aliexpress_orders.py login
+.venv\Scripts\python aliexpress_orders.py update
+```
+
+The script takes a command (`login`, `update`, ...), not your e-mail address or password:
+`login` opens a browser window where you log in to AliExpress yourself. In PowerShell
+the commands are the same; if activating or running scripts is blocked, use `cmd` instead.
+Open `overview\index.html` in your browser when it is done.
 
 ## Commands
 

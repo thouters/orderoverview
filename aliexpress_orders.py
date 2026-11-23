@@ -131,12 +131,12 @@ def parse_order_response(body):
     return out
 
 def load_orders():
-    return json.load(open(ORDERS_JSON)) if os.path.exists(ORDERS_JSON) else []
+    return json.load(open(ORDERS_JSON, encoding="utf-8")) if os.path.exists(ORDERS_JSON) else []
 
 def save_orders(orders):
     os.makedirs(OUT, exist_ok=True)
     orders.sort(key=lambda o: pdate(o["date"]), reverse=True)
-    json.dump(orders, open(ORDERS_JSON, "w"), indent=1, ensure_ascii=False)
+    json.dump(orders, open(ORDERS_JSON, "w", encoding="utf-8"), indent=1, ensure_ascii=False)
 
 async def cmd_orders(b, full=False):
     known = {o["orderId"]: o for o in load_orders()}
@@ -206,7 +206,7 @@ def products_from_orders(orders):
 def is_done(pid):
     f = os.path.join(PROD, pid, "meta.json")
     try:
-        return json.load(open(f)).get("v") == META_VERSION
+        return json.load(open(f, encoding="utf-8")).get("v") == META_VERSION
     except Exception:
         return False
 
@@ -265,7 +265,7 @@ async def scrape_product(b, pg, pid, lines):
     meta = {"v": META_VERSION, "productId": pid, "finalUrl": pg.url,
             "pageTitle": info.get("title"), "docTitle": info.get("doctitle"),
             "live": bool(info.get("gallery")), "images": files}
-    json.dump(meta, open(os.path.join(d, "meta.json"), "w"), ensure_ascii=False, indent=1)
+    json.dump(meta, open(os.path.join(d, "meta.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     return meta
 
 async def cmd_products(b, force=False, only=None, limit=None):
@@ -319,7 +319,7 @@ DETAILS_JS = """()=>{
 
 def details_done(pid):
     try:
-        return json.load(open(os.path.join(PROD, pid, "details.json"))).get("v") == DETAILS_VERSION
+        return json.load(open(os.path.join(PROD, pid, "details.json"), encoding="utf-8")).get("v") == DETAILS_VERSION
     except Exception:
         return False
 
@@ -377,7 +377,7 @@ async def scrape_details(b, pg, pid):
     out = {"v": DETAILS_VERSION, "specs": info["specs"], "docs": docs,
            "descriptionImages": desc,
            "descriptionText": re.sub(r"\n{3,}", "\n\n", info["descText"]) if info["descText"] else None}
-    json.dump(out, open(os.path.join(d, "details.json"), "w"), ensure_ascii=False, indent=1)
+    json.dump(out, open(os.path.join(d, "details.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     return out
 
 async def cmd_details(b, force=False, only=None, limit=None, all_products=False):
@@ -426,14 +426,14 @@ def eur(s):
 
 def read_meta(pid):
     try:
-        return json.load(open(os.path.join(PROD, pid, "meta.json")))
+        return json.load(open(os.path.join(PROD, pid, "meta.json"), encoding="utf-8"))
     except Exception:
         return None
 
 def details_html(folder, absf):
     e = html.escape
     try:
-        dt = json.load(open(os.path.join(absf, "details.json")))
+        dt = json.load(open(os.path.join(absf, "details.json"), encoding="utf-8"))
     except Exception:
         return ""
     parts, label = [], []
@@ -442,7 +442,10 @@ def details_html(folder, absf):
         parts.append(f'<table class="specs">{rows}</table>')
         label.append(f"{len(dt['specs'])} specs")
     if dt.get("docs"):
-        links = "".join(f'<a href="{e(folder)}/{e(x["file"])}" target="_blank"><b>PDF</b> {e(re.sub(r"\s*\(PDF\)", "", x["name"] or "") or "Document")}</a>' for x in dt["docs"])
+        # No backslashes inside f-string expressions: that needs Python 3.12+ (PEP 701).
+        def doc_label(x):
+            return re.sub(r"\s*\(PDF\)", "", x["name"] or "") or "Document"
+        links = "".join(f'<a href="{e(folder)}/{e(x["file"])}" target="_blank"><b>PDF</b> {e(doc_label(x))}</a>' for x in dt["docs"])
         parts.append(f'<div class="docs">{links}</div>')
         label.append(f"{len(dt['docs'])} document{'s' if len(dt['docs']) > 1 else ''}")
     if dt.get("descriptionText"):
@@ -588,7 +591,7 @@ document.addEventListener('click',ev=>{{const g=ev.target.closest('.g');
 document.addEventListener('keydown',ev=>{{if(ev.key==='Escape')lb.style.display='none'}});
 </script></body></html>"""
     os.makedirs(OUT, exist_ok=True)
-    with open(os.path.join(OUT, "index.html"), "w") as fh:
+    with open(os.path.join(OUT, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(page)
     log(f"overview/index.html written: {len(orders)} orders, {len(seen)} products with data.")
 
