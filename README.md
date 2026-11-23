@@ -1,8 +1,12 @@
-# AliExpress order overview
+# Order overview
 
-`aliexpress_orders.py` fetches all your AliExpress orders and builds `overview/index.html`:
-the products of every order, a screenshot of each product page, the product images and,
-for products still for sale, the specifications, PDF documents and description images.
+Two scripts that build a local HTML overview of your web shop orders:
+
+- `aliexpress_orders.py` fetches all your AliExpress orders and builds `overview/index.html`:
+  the products of every order, a screenshot of each product page, the product images and,
+  for products still for sale, the specifications, PDF documents and description images.
+- `tinytronics_orders.py` does the same for [TinyTronics](https://www.tinytronics.nl) and
+  builds `overview-tinytronics/index.html`; see [TinyTronics](#tinytronics) below.
 
 ## With Nix
 
@@ -105,4 +109,42 @@ overview/
     docs/*.pdf                item guides & documents (e.g. user manuals)
     description/desc_*.jpg    images from the product description
     meta.json
+```
+
+## TinyTronics
+
+`tinytronics_orders.py` works like the AliExpress script, with the same setup, browser options
+(`--channel`, `--cdp`) and commands, minus `details`: TinyTronics product pages are fetched
+in one go.
+
+```bash
+nix run .#tinytronics -- login     # first time: log in in the browser window
+nix run .#tinytronics -- update    # new orders + missing products + html
+```
+
+Without Nix: `python tinytronics_orders.py login`, then `python tinytronics_orders.py update`
+(on Windows `.venv\Scripts\python tinytronics_orders.py --channel msedge update`).
+
+| Command | What it does |
+|---|---|
+| `login` | Open the browser so you can log in; the session is kept in `.browser-profile-tinytronics/` |
+| `update [--full]` | `orders`, then `products` and `html` |
+| `orders [--full]` | Load the order list, order details and PDF invoices; stops at already known orders unless `--full` |
+| `products [--force] [--only SKU ...] [--limit N]` | Screenshot, images, specifications, description and downloads for products not yet processed |
+| `html` | Regenerate `overview-tinytronics/index.html` from the saved data |
+
+Products are stored by their TinyTronics SKU. Output (set `$TINYTRONICS_ORDERS_DIR` to put it
+elsewhere):
+
+```
+overview-tinytronics/
+  index.html                  the overview (open in a browser)
+  orders.json                 orders, order lines, totals, tracking and status history
+  invoices/<orderId>.pdf      PDF invoice of each order
+  products/<sku>/
+    screenshot.jpg            product page
+    img_01.jpg ...            gallery images (original size)
+    docs/*                    files from the "Downloads" tab (datasheets etc.)
+    description/desc_*.jpg    images from the description
+    meta.json                 title, availability, price, specifications, description text
 ```

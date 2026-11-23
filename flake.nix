@@ -19,24 +19,28 @@
           PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
         };
 
-        app = pkgs.writeShellApplication {
-          name = "aliexpress-orders";
+        # Output and browser profile go in the current directory unless overridden.
+        mkApp = name: script: envVar: pkgs.writeShellApplication {
+          inherit name;
           runtimeInputs = [ python ];
           runtimeEnv = playwrightEnv;
           text = ''
-            # Output and browser profile go in the current directory unless overridden.
-            export ALIEXPRESS_ORDERS_DIR="''${ALIEXPRESS_ORDERS_DIR:-$PWD}"
-            exec python ${./aliexpress_orders.py} "$@"
+            export ${envVar}="''${${envVar}:-$PWD}"
+            exec python ${script} "$@"
           '';
         };
+
+        aliexpress = mkApp "aliexpress-orders" ./aliexpress_orders.py "ALIEXPRESS_ORDERS_DIR";
+        tinytronics = mkApp "tinytronics-orders" ./tinytronics_orders.py "TINYTRONICS_ORDERS_DIR";
       in
       {
-        packages.default = app;
+        packages.default = aliexpress;
+        packages.aliexpress = aliexpress;
+        packages.tinytronics = tinytronics;
 
-        apps.default = {
-          type = "app";
-          program = "${app}/bin/aliexpress-orders";
-        };
+        apps.default = { type = "app"; program = "${aliexpress}/bin/aliexpress-orders"; };
+        apps.aliexpress = { type = "app"; program = "${aliexpress}/bin/aliexpress-orders"; };
+        apps.tinytronics = { type = "app"; program = "${tinytronics}/bin/tinytronics-orders"; };
 
         devShells.default = pkgs.mkShell ({
           packages = [ python ];
