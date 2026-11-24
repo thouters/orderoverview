@@ -19,7 +19,10 @@ Options for all commands that use the browser (put them before the command):
 
 The browser runs visibly with its own profile in ./.browser-profile (or
 ./.browser-profile-<channel>), so you stay logged in between runs. On a captcha
-the script pauses until you solve it.
+the script pauses until you solve it. When AliExpress shows its bot check while loading the
+order list and nobody solves it within 2 minutes, `orders` pauses (15, 30, 60, 120 minutes;
+see --backoff) and tries again. Orders are saved after every page; when a run stops early,
+the next run continues until it reaches the oldest order.
 """
 import argparse, asyncio, html, io, json, os, random, re, sys, time
 from datetime import datetime
@@ -103,7 +106,10 @@ async def wait_for_login(pg):
             return
     sys.exit("No login within 10 minutes; stopped.")
 
-CAPTCHA_SEL = "#nc_1_n1z, .baxia-dialog, iframe[src*='punish']"
+CAPTCHA_SEL = ("#nc_1_n1z, .baxia-dialog, #baxia-punish, .J_MIDDLEWARE_FRAME_WIDGET, "
+               "iframe[src*='punish'], iframe[src*='_____tmd_____'], iframe[src*='captcha']")
+# an mtop API call that was refused by the bot check answers with one of these
+BLOCKED_RE = re.compile(r"RGV587_ERROR|FAIL_SYS_USER_VALIDATE|FAIL_SYS_ILLEGAL_ACCESS|punish")
 
 async def has_captcha(pg):
     if re.search(r"punish|captcha|_____tmd_____", pg.url):
@@ -113,18 +119,26 @@ async def has_captcha(pg):
     except Exception:
         return False
 
-async def wait_for_captcha(pg):
-    if not await has_captcha(pg):
-        return
+async def wait_for_captcha(pg, force=False, give_up=True, seconds=900):
+    """Waits while a captcha/bot check is shown. With force=True it also waits when none is found on
+    the page (the API reported a block): until one shows up and is solved, or 20 seconds without one.
+    Returns False when it was not solved in time and give_up is False."""
+    if not force and not await has_captcha(pg):
+        return True
     await pg.bring_to_front()
-    log("Captcha! Solve it in the browser window (waiting up to 15 minutes)...")
-    for _ in range(900):
+    log(f"Captcha / bot check! Solve it in the browser window (waiting up to {seconds // 60} minutes)...")
+    seen = False
+    for i in range(seconds):
         await pg.wait_for_timeout(1000)
-        if not await has_captcha(pg):
-            log("Captcha solved, continuing.")
+        shown = await has_captcha(pg)
+        seen = seen or shown
+        if not shown and (seen or i >= 20):
+            log("Captcha solved, continuing." if seen else "No captcha visible any more, continuing.")
             await pg.wait_for_timeout(3000)
-            return
-    sys.exit("Captcha not solved within 15 minutes; stopped. Run again to resume.")
+            return True
+    if give_up:
+        sys.exit("Captcha not solved within 15 minutes; stopped. Run again to resume.")
+    return False
 
 # ---------------------------------------------------------------- orders
 
@@ -156,19 +170,63 @@ def load_orders():
 def save_orders(orders):
     os.makedirs(OUT, exist_ok=True)
     orders.sort(key=lambda o: pdate(o["date"]), reverse=True)
-    json.dump(orders, open(ORDERS_JSON, "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    tmp = ORDERS_JSON + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(orders, f, indent=1, ensure_ascii=False)
+    os.replace(tmp, ORDERS_JSON)
 
-async def cmd_orders(b, full=False):
+# Whether the last `orders` run reached the oldest order. When it did not (bot check, crash, Ctrl+C),
+# the next run keeps loading until the end instead of stopping at the first page of known orders.
+STATE_JSON = os.path.join(OUT, "orders_state.json")
+
+def orders_complete():
+    try:
+        return json.load(open(STATE_JSON, encoding="utf-8")).get("complete", True)
+    except (OSError, ValueError):
+        return bool(load_orders())  # data from before this file existed
+
+def set_orders_complete(done):
+    os.makedirs(OUT, exist_ok=True)
+    with open(STATE_JSON, "w", encoding="utf-8") as f:
+        json.dump({"complete": done, "updated": datetime.now().isoformat(timespec="seconds")}, f)
+
+async def cmd_orders(b, full=False, backoff=(15, 30, 60, 120)):
     known = {o["orderId"]: o for o in load_orders()}
+    resume = not full and known and not orders_complete()
+    if resume:
+        log(f"The previous run stopped before the oldest order ({len(known)} orders saved); "
+            "loading on until the oldest one.")
+    set_orders_complete(False)
     pages = []  # list of order lists, one per API response
     pending = set()
+    blocked = []
+    new = 0
+
+    def merge():
+        # save after every page, so a bot check or crash never loses what was fetched
+        nonlocal new
+        for p in pages[merge.done:]:
+            for o in p:
+                new += o["orderId"] not in known
+                known[o["orderId"]] = o
+        merge.done = len(pages)
+        save_orders(list(known.values()))
+    merge.done = 0
 
     pg = await b.new_page()
 
     async def on_resp(r):
         if "mtop.aliexpress.trade.buyer.order.list" in r.url:
             try:
-                pages.append(parse_order_response(await r.text()))
+                body = await r.text()
+            except Exception as e:
+                log("could not read order response:", e)
+                return
+            if BLOCKED_RE.search(body[:2000]) and "pc_om_list_order_" not in body:
+                blocked.append(r.url)
+                return
+            try:
+                pages.append(parse_order_response(body))
             except Exception as e:
                 log("could not parse order response:", e)
     pg.on("response", lambda r: pending.add(asyncio.ensure_future(on_resp(r))))
@@ -180,30 +238,87 @@ async def cmd_orders(b, full=False):
         await pg.goto(ORDER_URL, wait_until="domcontentloaded")
     await wait_for_captcha(pg)
     await pg.wait_for_timeout(5000)
+    pauses = list(backoff)
 
-    for i in range(500):
+    async def pause_and_reload():
+        """After an unsolved bot check: wait a while, then reload the order list. The list always starts
+        at the newest orders, so the run walks through the pages again, now without stopping at known
+        orders, until it gets past the oldest saved one."""
+        nonlocal resume
+        if not pauses:
+            return False
+        minutes = pauses.pop(0)
+        merge()
+        log(f"Pausing {minutes} minute{'s' if minutes != 1 else ''} before trying again ({len(known)} orders saved so far; "
+            "Ctrl+C is safe, the next run resumes)...")
+        await pg.wait_for_timeout(minutes * 60_000)
+        resume = not full
+        blocked.clear()
+        await pg.goto(ORDER_URL, wait_until="domcontentloaded")
+        await pg.wait_for_timeout(5000)
+        if await has_captcha(pg) and not await wait_for_captcha(pg, give_up=False, seconds=120):
+            return await pause_and_reload()
+        return True
+
+    btn = pg.locator("button:has-text('View orders'), .order-more button")
+    complete = False
+    stopped = None
+    retries = 0
+    for i in range(1000):
         await asyncio.gather(*pending)
-        if not full and pages and known and all(o["orderId"] in known for o in pages[-1]):
+        merge()
+        if not full and not resume and pages and known and all(o["orderId"] in known for o in pages[-1]):
             log("Only known orders left; stopping (use --full to load everything).")
+            complete = True
             break
-        btn = pg.locator("button:has-text('View orders'), .order-more button")
+        if blocked or await has_captcha(pg):
+            blocked.clear()
+            if not await wait_for_captcha(pg, force=True, give_up=False, seconds=120):
+                if not await pause_and_reload():
+                    stopped = "the bot check kept coming back"
+                    break
         if await btn.count() == 0 or not await btn.first.is_visible():
-            break
+            if pages or i > 0:
+                complete = True
+                break
+            await pg.wait_for_timeout(3000)  # the first page may still be loading
+            if await btn.count() == 0 or not await btn.first.is_visible():
+                complete = True
+                break
+        before = len(pages) + len(blocked)
+        # a human-like pace: the bot check comes sooner when "View orders" is clicked quickly
+        await pg.wait_for_timeout(random.randint(2500, 6000))
         await btn.first.scroll_into_view_if_needed()
         await btn.first.click()
-        await pg.wait_for_timeout(3000)
-        await wait_for_captcha(pg)
-        log(f"loaded more ({sum(len(p) for p in pages)} orders fetched)")
+        for _ in range(30):  # wait for the answer (or the bot check) to this click
+            await pg.wait_for_timeout(500)
+            await asyncio.gather(*pending)
+            if len(pages) + len(blocked) > before or await has_captcha(pg):
+                break
+        if len(pages) + len(blocked) == before and not await has_captcha(pg):
+            retries += 1
+            if retries > 3:
+                retries = 0
+                if not await pause_and_reload():
+                    stopped = "AliExpress stopped answering"
+                    break
+                continue
+            log("no answer to 'View orders'; trying again...")
+            continue
+        retries = 0
+        merge()
+        log(f"loaded more ({sum(len(p) for p in pages)} orders fetched, {len(known)} in orders.json)")
     await asyncio.gather(*pending)
     await pg.close()
 
-    new = 0
-    for p in pages:
-        for o in p:
-            new += o["orderId"] not in known
-            known[o["orderId"]] = o
-    save_orders(list(known.values()))
+    merge()
+    set_orders_complete(complete)
     log(f"{len(known)} orders in orders.json ({new} new).")
+    if not complete:
+        oldest = min((pdate(o["date"]) for o in known.values()), default=None)
+        sys.exit(f"Stopped before the oldest order ({stopped or 'interrupted'}); everything up to "
+                 f"{oldest:%Y-%m-%d} is saved. Run `orders` (or `update`) again to load the rest."
+                 if oldest else f"Stopped ({stopped or 'interrupted'}). Run again to retry.")
 
 # ---------------------------------------------------------------- products
 
@@ -632,13 +747,13 @@ async def run(args):
         if args.cmd == "login":
             await cmd_login(b)
         elif args.cmd == "orders":
-            await cmd_orders(b, full=args.full)
+            await cmd_orders(b, full=args.full, backoff=args.backoff)
         elif args.cmd == "products":
             await cmd_products(b, force=args.force, only=args.only, limit=args.limit)
         elif args.cmd == "details":
             await cmd_details(b, force=args.force, only=args.only, limit=args.limit, all_products=args.all)
         elif args.cmd == "update":
-            await cmd_orders(b, full=args.full)
+            await cmd_orders(b, full=args.full, backoff=args.backoff)
             await cmd_products(b)
             await cmd_details(b)
     if args.cmd in ("products", "details", "update"):
@@ -654,6 +769,11 @@ def main():
     sub.add_parser("html")
     o = sub.add_parser("orders"); o.add_argument("--full", action="store_true", help="reload all orders")
     u = sub.add_parser("update"); u.add_argument("--full", action="store_true")
+    for sp in (o, u):
+        sp.add_argument("--backoff", type=lambda v: [int(x) for x in v.split(",") if x], default=[15, 30, 60, 120],
+                        metavar="MIN,MIN,...",
+                        help="minutes to pause before retrying after an unsolved bot check "
+                             "(default 15,30,60,120; empty = stop at once)")
     p = sub.add_parser("products")
     p.add_argument("--force", action="store_true", help="redo already processed products")
     p.add_argument("--only", nargs="+", metavar="ID")

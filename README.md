@@ -15,6 +15,8 @@ Two scripts that build a local HTML overview of your web shop orders:
   builds `overview-reichelt/index.html`; see [reichelt](#reichelt) below.
 - `solyd_orders.py` does the same for [Solyd](https://www.solyd.be) and builds
   `overview-solyd/index.html`; see [Solyd](#solyd) below.
+- `export_notes.py` copies all of that into an Obsidian vault as Markdown notes; see
+  [Markdown notes](#markdown-notes) below.
 
 ## With Nix
 
@@ -92,13 +94,18 @@ logins are not used or touched. Use the same `--channel` every time to stay logg
 | Command | What it does |
 |---|---|
 | `login` | Open the browser so you can log in; the session is kept in the profile folder (see above) |
-| `update [--full]` | `orders`, then `products`, `details` and `html` |
-| `orders [--full]` | Load the order list; stops at already known orders unless `--full` |
+| `update [--full] [--backoff MIN,...]` | `orders`, then `products`, `details` and `html` |
+| `orders [--full] [--backoff MIN,...]` | Load the order list; stops at already known orders unless `--full` or the last run was interrupted |
 | `products [--force] [--only ID ...] [--limit N]` | Screenshot + images for products not yet processed |
 | `details [--force] [--all] [--only ID ...] [--limit N]` | Specifications, documents (PDF) and description images for products still for sale |
 | `html` | Regenerate `overview/index.html` from the saved data |
 
 - On a captcha or expired login the script pauses; solve it in the window and it continues.
+- When AliExpress shows its bot check while loading the order list and nobody solves it within
+  2 minutes, `orders` pauses and tries again (after 15, 30, 60 and 120 minutes; change with
+  `--backoff 10,20` or stop at once with `--backoff ""`).
+- Orders are saved after every page. When a run stops before the oldest order (bot check,
+  Ctrl+C, crash), the next `orders` or `update` keeps loading until it reaches the oldest one.
 - It is resumable: products that already have a `meta.json` are skipped.
 - `--cdp http://127.0.0.1:9333` attaches to an already running Chromium instead of launching one
   (`--channel` is ignored then).
@@ -289,3 +296,26 @@ overview-solyd/
     img_01.jpg ...            product images
     meta.json                 title, price, availability, specifications, description
 ```
+
+## Markdown notes
+
+`export_notes.py` copies the data of every shop into a folder of an Obsidian vault and writes a
+Markdown note for each shop, order and product, so the purchase history can be browsed in
+Obsidian (or any app that reads the vault):
+
+```bash
+python export_notes.py ~/notes/purchases            # all shops that have data
+python export_notes.py ~/notes/purchases --shops solyd reichelt
+```
+
+- `<folder>/<folder>.md`: totals per shop and per year.
+- `<shop>/<shop>.md`: orders and products of that shop, with totals.
+- `<shop>/orders/<date> <order>.md`: the order lines with thumbnails, documents and invoice.
+- `<shop>/products/<key>/<key>.md`: images, specifications, documents, description and the
+  screenshot of the product page, plus the orders it was in.
+
+Links and image embeds use paths from the vault root (the first folder above the target with a
+`.obsidian` folder, or `--vault`). Run it again after an `update`; unchanged notes are left alone.
+The data is a few hundred MB of images and PDFs: in a vault kept in git, put those in git-annex or
+Git LFS (e.g. `<folder>/** annex.largefiles=anything` and `<folder>/**/*.md annex.largefiles=nothing`
+in `.gitattributes`).
