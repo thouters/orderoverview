@@ -11,6 +11,10 @@ Two scripts that build a local HTML overview of your web shop orders:
   `overview-conrad/index.html`; see [Conrad](#conrad) below.
 - `automation24_orders.py` does the same for [Automation24](https://www.automation24.be) and
   builds `overview-automation24/index.html`; see [Automation24](#automation24) below.
+- `reichelt_orders.py` does the same for [reichelt elektronik](https://www.reichelt.de) and
+  builds `overview-reichelt/index.html`; see [reichelt](#reichelt) below.
+- `solyd_orders.py` does the same for [Solyd](https://www.solyd.be) and builds
+  `overview-solyd/index.html`; see [Solyd](#solyd) below.
 
 ## With Nix
 
@@ -220,4 +224,68 @@ overview-automation24/
     img_01.webp ...           product images
     docs/*                    datasheets, manuals, certificates, CAD files
     meta.json                 title, brand, availability, specifications, description
+```
+
+## reichelt
+
+`reichelt_orders.py` works like the other scripts (same options and commands) for orders
+placed on www.reichelt.de. Products are stored by reichelt's internal article id.
+
+```bash
+nix run .#reichelt -- login     # first time: log in in the browser window
+nix run .#reichelt -- update    # new orders + missing products + html
+```
+
+Without Nix: `python reichelt_orders.py login`, then `python reichelt_orders.py update`.
+
+- `orders` reads the order list and each order's shipments (status, delivery date, invoice
+  number) and lines. reichelt offers no invoice PDF in the account.
+- `products` saves a screenshot, the product images, the technical data, the description and
+  the datasheets. The cookie banner is accepted automatically.
+- For discontinued products reichelt keeps the page and the technical data, but removes the
+  images.
+
+Output (set `$REICHELT_ORDERS_DIR` to put it elsewhere):
+
+```
+overview-reichelt/
+  index.html                  the overview (open in a browser)
+  orders.json                 orders, shipments, order lines
+  products/<article id>/
+    screenshot.jpg            product page
+    img_01.jpg ...            product images
+    docs/*.pdf                datasheets
+    meta.json                 title, availability, price, technical data, description
+```
+
+## Solyd
+
+`solyd_orders.py` works like the other scripts (same options and commands) for orders placed
+on www.solyd.be. Products are stored by their article number (SKU).
+
+```bash
+nix run .#solyd -- login     # first time: log in in the browser window
+nix run .#solyd -- update    # new orders + missing products + html
+```
+
+Without Nix: `python solyd_orders.py login`, then `python solyd_orders.py update`.
+
+- `orders` reads the order history, each order's lines, totals, shipping and payment method.
+  Solyd has no invoice PDF, only a print page; the script saves that page as an image.
+- The order history has no product links, so `products` opens the page whose address is the
+  product name (that is how Solyd names its pages), or else uses the shop's search, and checks
+  the article number. It saves a screenshot, the product images (original size), the
+  specifications and the description. The cookie banner is accepted automatically.
+
+Output (set `$SOLYD_ORDERS_DIR` to put it elsewhere):
+
+```
+overview-solyd/
+  index.html                  the overview (open in a browser)
+  orders.json                 orders, order lines, totals
+  invoices/<order>_<invoice>.jpg   the invoice print page
+  products/<sku>/
+    screenshot.jpg            product page
+    img_01.jpg ...            product images
+    meta.json                 title, price, availability, specifications, description
 ```

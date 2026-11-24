@@ -34,6 +34,8 @@
         tinytronics = mkApp "tinytronics-orders" ./tinytronics_orders.py "TINYTRONICS_ORDERS_DIR";
         conrad = mkApp "conrad-orders" ./conrad_orders.py "CONRAD_ORDERS_DIR";
         automation24 = mkApp "automation24-orders" ./automation24_orders.py "AUTOMATION24_ORDERS_DIR";
+        reichelt = mkApp "reichelt-orders" ./reichelt_orders.py "REICHELT_ORDERS_DIR";
+        solyd = mkApp "solyd-orders" ./solyd_orders.py "SOLYD_ORDERS_DIR";
       in
       {
         packages.default = aliexpress;
@@ -41,12 +43,16 @@
         packages.tinytronics = tinytronics;
         packages.conrad = conrad;
         packages.automation24 = automation24;
+        packages.reichelt = reichelt;
+        packages.solyd = solyd;
 
         apps.default = { type = "app"; program = "${aliexpress}/bin/aliexpress-orders"; };
         apps.aliexpress = { type = "app"; program = "${aliexpress}/bin/aliexpress-orders"; };
         apps.tinytronics = { type = "app"; program = "${tinytronics}/bin/tinytronics-orders"; };
         apps.conrad = { type = "app"; program = "${conrad}/bin/conrad-orders"; };
         apps.automation24 = { type = "app"; program = "${automation24}/bin/automation24-orders"; };
+        apps.reichelt = { type = "app"; program = "${reichelt}/bin/reichelt-orders"; };
+        apps.solyd = { type = "app"; program = "${solyd}/bin/solyd-orders"; };
 
         devShells.default = pkgs.mkShell ({
           packages = [ python ];
